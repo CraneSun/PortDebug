@@ -2,6 +2,12 @@
 
 ![](./main.jpg)
 
+## Install and run
+    install by pip
+        pip install PortDebug
+    run
+        PortDebug
+
 This is a software for serial debugging that supports the following features:
 
 - Serial data logging
