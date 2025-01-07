@@ -7,24 +7,72 @@ license: MIT
 copyright: 2025 sunkun
 
 '''
-import sys
-import json
+import sys, json
 from py_mini_racer import py_mini_racer
-from scriptStr import non_parity
-from scriptStr import crc8_parity
-from scriptStr import crc16_parity
-from scriptStr import crc32_parity
-from scriptStr import sum_parity
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                              QHBoxLayout, QTabWidget, QLabel, QComboBox,
-                              QPushButton, QLineEdit, QFormLayout, QTextEdit, 
-                              QTableWidget, QTableWidgetItem, QCheckBox, QDialog,
-                              QHeaderView, QSplitter, QSpinBox, QMessageBox, QDockWidget)
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, 
+    QComboBox, QPushButton, QLineEdit, QFormLayout, QTextEdit, QTableWidget, 
+    QTableWidgetItem, QCheckBox, QDialog, QHeaderView, QSplitter, QSpinBox, 
+    QMessageBox, QDockWidget
+)
 from PySide6.QtCore import Qt, QTimer, QDateTime
-from PySide6.QtGui import (QTextCharFormat, QColor, QTextCursor, QAction)
-from PySide6.QtCore import Qt
-from PySide6.QtCore import QTimer
+from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor, QAction
 import serial.tools.list_ports
+
+non_parity = '''
+    function processData(CalcArr) {
+        var arr = CalcArr.split(" ");
+        return arr;  
+    }
+    '''
+crc8_parity = '''
+function processData(CalcArr) {
+    var arr = CalcArr.split(" "), crc = 0xFF, polynomial = 0x2F;
+    for (var i = 0; i < arr.length; i++) {
+        var byte = parseInt(arr[i], 16);
+        crc ^= byte;
+        for (var j = 0; j < 8; j++) crc = (crc & 0x80) ? (crc << 1) ^ polynomial : crc << 1, crc &= 0xFF;
+    }
+    arr.push((crc ^ 0xFF).toString(16).toUpperCase());
+    return arr;
+}
+'''
+
+crc16_parity = '''
+function processData(CalcArr) {
+    var arr = CalcArr.split(" "), crc = 0xFFFF, polynomial = 0xA001;
+    for (var i = 0; i < arr.length; i++) {
+        crc ^= parseInt(arr[i], 16);
+        for (var j = 0; j < 8; j++) crc = (crc & 0x0001) ? (crc >> 1) ^ polynomial : crc >> 1;
+    }
+    arr.push(((crc >> 8) & 0xFF).toString(16).toUpperCase(), (crc & 0xFF).toString(16).toUpperCase());
+    return arr;
+}
+'''
+
+crc32_parity = '''
+function processData(CalcArr) {
+    var arr = CalcArr.split(" "), crc = 0xFFFFFFFF, polynomial = 0xEDB88320, crcTable = new Uint32Array(256);
+    for (var i = 0; i < 256; i++) {
+        var temp = i;
+        for (var j = 0; j < 8; j++) temp = (temp >>> 1) ^ (polynomial & ~((temp & 1) - 1));
+        crcTable[i] = temp >>> 0;
+    }
+    for (var i = 0; i < arr.length; i++) crc = (crc >>> 8) ^ crcTable[(crc ^ parseInt(arr[i], 16)) & 0xFF];
+    crc ^= 0xFFFFFFFF;
+    arr.push(((crc >> 24) & 0xFF).toString(16).toUpperCase(), ((crc >> 16) & 0xFF).toString(16).toUpperCase(), ((crc >> 8) & 0xFF).toString(16).toUpperCase(), (crc & 0xFF).toString(16).toUpperCase());
+    return arr;
+}
+'''
+
+sum_parity = '''
+function processData(CalcArr) {
+    var arr = CalcArr.split(" "), sum = 0;
+    for (var i = 0; i < arr.length; i++) sum += parseInt(arr[i], 16);
+    arr.push((sum & 0xFF).toString(16).toUpperCase());
+    return arr;
+}
+'''
 
 
 class RenameDialog(QDialog):
@@ -33,16 +81,13 @@ class RenameDialog(QDialog):
         self.setWindowTitle("Rename Button")
         self.setModal(True)
 
-        self.layout = QFormLayout(self)
-        self.label = QLabel("Enter new name:")
-        self.layout.addRow(self.label)
-
+        layout = QFormLayout(self)
+        layout.addRow(QLabel("Enter new name:"))
         self.line_edit = QLineEdit(current_name)
-        self.layout.addRow(self.line_edit)
-
-        self.button_box = QPushButton("OK")
-        self.button_box.clicked.connect(self.accept)
-        self.layout.addRow(self.button_box)
+        layout.addRow(self.line_edit)
+        button_box = QPushButton("OK")
+        button_box.clicked.connect(self.accept)
+        layout.addRow(button_box)
 
     def get_new_name(self):
         return self.line_edit.text()
@@ -50,7 +95,7 @@ class RenameDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PortDebugV1.0")
+        self.setWindowTitle("PortDebug V1.0.6")
         self.resize(1200, 800)
         
         central_widget = QWidget()
@@ -72,7 +117,7 @@ class MainWindow(QMainWindow):
         standard_baudrates = [
             '300', '600', '1200', '2400', '4800', '9600', '14400',
             '19200', '28800', '38400', '57600', '115200', '230400',
-            '460800', '921600'
+            '460800', '921600', '1000000', '1500000', '2000000' 
         ]
         self.baud_combo.addItems(standard_baudrates)
         self.baud_combo.setCurrentText('9600') 
@@ -134,11 +179,12 @@ class MainWindow(QMainWindow):
         self.send_area.setMaximumHeight(100)
         
         send_control_layout = QHBoxLayout()
-        self.hex_send_cb = QCheckBox("HEX")
+        self.hex_recv_cb = QCheckBox("HEX Recv")
+        self.hex_send_cb = QCheckBox("HEX Send")
         script_edit_btn = QPushButton("JSScript")
         self.send_btn = QPushButton("Send")
         clear_send_btn = QPushButton("Clear")
-        self.send_btn.clicked.connect(lambda:self.send_data(self.send_area.toPlainText().strip()))
+        self.send_btn.clicked.connect(lambda:self.send_data(self.send_area.toPlainText().strip(), self.hex_send_cb.isChecked()))
 
         self.checksum_combo = QComboBox()
         self.checksum_combo.addItems(["NONE", "JSScript", "CRC8", "CRC16", "CRC32", "SUM"])
@@ -148,6 +194,7 @@ class MainWindow(QMainWindow):
         self.ctx.eval(self.script_content)
         self.checksum_combo.currentIndexChanged.connect(self.update_script_content) 
 
+        send_control_layout.addWidget(self.hex_recv_cb)
         send_control_layout.addWidget(self.hex_send_cb)
         send_control_layout.addWidget(script_edit_btn)
         send_control_layout.addWidget(self.checksum_combo)
@@ -193,7 +240,7 @@ class MainWindow(QMainWindow):
             send_button = QPushButton("Send")
             send_button.clicked.connect(lambda checked, r=i: self.handle_send_button_click(r))
             send_button.setContextMenuPolicy(Qt.CustomContextMenu)
-            send_button.customContextMenuRequested.connect(lambda pos, btn=send_button: self.handle_button_rename(btn))
+            send_button.customContextMenuRequested.connect(lambda pos, btn=send_button, : self.handle_button_rename(btn))
             self.command_table.setCellWidget(i, 2, send_button)
 
             cycle_spin = QSpinBox()
@@ -302,16 +349,16 @@ class MainWindow(QMainWindow):
                         cursor = self.receive_area.textCursor()
                         cursor.movePosition(QTextCursor.End)
                         
-                        if self.hex_send_cb.isChecked():
+                        if self.hex_recv_cb.isChecked():
                             hex_str = ' '.join([f'{b:02X}' for b in data])
-                            cursor.insertText(time_str + hex_str + '\n', text_format)
+                            cursor.insertText(time_str + f"[HEX] {hex_str}\n", text_format)
                         else:
                             try:
                                 text = data.decode('utf-8')
                                 cursor.insertText(time_str + text + '\n', text_format)
                             except UnicodeDecodeError:
                                 hex_str = ' '.join([f'{b:02X}' for b in data])
-                                cursor.insertText(time_str + f"[decode error] {hex_str}\n", text_format)
+                                cursor.insertText(time_str + f"[HEX] {hex_str}\n", text_format)
                         
                         self.receive_area.setTextCursor(cursor)
                         
@@ -352,39 +399,17 @@ class MainWindow(QMainWindow):
         else:
             return sum_parity
 
-    def send_data(self,data):
+    def send_data(self,data, is_hex):
         if not self.serial_port or not self.serial_port.is_open:
             QMessageBox.warning(self, "Warning", "Open the serial port first！")
             return
             
         try:
-            #data = self.send_area.toPlainText().strip()  
             if not data:
                 QMessageBox.warning(self, "Warninig", "data is empty！")
                 return
-            is_hex = self.hex_send_cb.isChecked()
-            if is_hex:
-                if all(c in '0123456789ABCDEF' for c in data.upper()):
-                    input_data = ' '.join(data[i:i+2] for i in range(0, len(data), 2))
-                else:
-                    QMessageBox.warning(self, "Warning", "data is not hex format！")
-                    return;
-            else:
-                input_data = ' '.join(format(ord(char), '02X') for char in data)
-
-            script_content = self.get_srcipt_content()
-            if("NONE" == script_content):
-                hex_list = input_data
-            else:
-                hex_list = self.ctx.call("processData", input_data)
-
-            if is_hex:
-                result_array = bytes(int(h.zfill(2), 16) for h in hex_list)
-            else:
-                result_array = bytes(int(h, 16) for h in hex_list) 
 
             current_time = QDateTime.currentDateTime().toString("hh:mm:ss.zzz")
-
             background = self.receive_area.palette().color(self.receive_area.backgroundRole())
             is_dark = background.lightness() < 128
             text_color = QColor("#FF8000") if is_dark else QColor("#707000") 
@@ -392,9 +417,31 @@ class MainWindow(QMainWindow):
             text_format.setForeground(text_color)
             cursor = self.receive_area.textCursor()
             cursor.movePosition(QTextCursor.End)
-            message = f"<-[{current_time}]: {data}\n"
+            if(is_hex):
+                message = f"<-[{current_time}]: [HEX] {data}\n"
+            else:
+                message = f"<-[{current_time}]: {data}\n"
+
             cursor.insertText(message,text_format)
             self.receive_area.setTextCursor(cursor)
+
+            if is_hex:
+                data = data.replace(" ","")
+                if all(c in '0123456789ABCDEF' for c in data.upper()):
+                    input_data = ' '.join(data[i:i+2] for i in range(0, len(data), 2))
+                else:
+                    QMessageBox.warning(self, "Warning", "data is not hex format！ ")
+                    return;
+            else:
+                input_data = ' '.join(format(ord(char), '02X') for char in data)
+
+            hex_list = self.ctx.call("processData", input_data)
+
+            if is_hex:
+                result_array = bytes(int(h.zfill(2), 16) for h in hex_list)
+            else:
+                result_array = bytes(int(h, 16) for h in hex_list) 
+
 
 
             if is_hex:
@@ -438,7 +485,8 @@ class MainWindow(QMainWindow):
 
     def handle_send_button_click(self, row):
         command_content = self.command_table.item(row, 1).text()  # Assuming the command is in the second column
-        self.send_data(command_content) 
+        isHex = self.command_table.cellWidget(row, 0).isChecked()  # Assuming the command is in the second column
+        self.send_data(command_content,isHex) 
 
     def handle_button_rename(self, button):
         # Show a dialog to rename the button
@@ -484,14 +532,11 @@ class MainWindow(QMainWindow):
                         cycle_spin.setValue(cycle_value)
 
         except FileNotFoundError:
-            self.command_table.item(0, 1).setText("Kun Sun in huzhen lishui")
-            self.command_table.item(1, 1).setText("sk602015817@hotmail.com")
-            self.command_table.item(2, 1).setText("thanks for usage")
             QMessageBox.warning(self, "A script demo", sum_parity)
         except json.JSONDecodeError:
-            self.command_table.item(0, 1).setText("Kun Sun in huzhen lishui")
-            self.command_table.item(1, 1).setText("sk602015817@hotmail.com")
-            self.command_table.item(2, 1).setText("thanks for usage")
+            #self.command_table.item(0, 1).setText("Kun Sun in huzhen lishui")
+            #self.command_table.item(1, 1).setText("sk602015817@hotmail.com")
+            #self.command_table.item(2, 1).setText("thanks for usage")
             QMessageBox.warning(self, "A script demo", sum_parity)
 
     def save_to_json(self):
@@ -516,12 +561,12 @@ class MainWindow(QMainWindow):
         with open("config.json", "w") as json_file:
             json.dump(data, json_file, indent=4)
 
-
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
 
-
+if __name__ == '__main__':
+    main()
 
