@@ -1,4 +1,6 @@
-# Serial Debugging Software
+# Serial Port Debugging Software
+
+![](./main.jpg)
 
 This is a software for serial debugging that supports the following features:
 
@@ -15,9 +17,4 @@ python main_en.pyt to run it
 
 
 PySide6
-
 Py_mini_racer
-
-
-
-![](.\main.jpg)
