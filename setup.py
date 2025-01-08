@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 setup(name='PortDebug',
-      version='1.0.6',
+      version='1.0.7',
       description='for using serial port debug',
       url='https://github.com/CraneSun/PortDebug',
       author='Kun Sun',

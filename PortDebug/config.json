@@ -7,14 +7,14 @@
             "cycle": 0
         },
         {
-            "hex": true,
-            "command": "AA",
+            "hex": false,
+            "command": "\u6211\u548c\u4f60\u56de\u5bb6",
             "btn_name": "Send",
             "cycle": 0
         },
         {
             "hex": false,
-            "command": "",
+            "command": "5A 1B CD",
             "btn_name": "Send",
             "cycle": 0
         },
@@ -601,5 +601,5 @@
             "cycle": 0
         }
     ],
-    "send_content": "AA  BB CC"
+    "send_content": "\u4f60\u8bf4\u5462"
 }

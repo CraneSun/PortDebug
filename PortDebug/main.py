@@ -10,12 +10,12 @@ copyright: 2025 sunkun
 import sys, json
 from py_mini_racer import py_mini_racer
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, 
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,QFileDialog, 
     QComboBox, QPushButton, QLineEdit, QFormLayout, QTextEdit, QTableWidget, 
     QTableWidgetItem, QCheckBox, QDialog, QHeaderView, QSplitter, QSpinBox, 
     QMessageBox, QDockWidget
 )
-from PySide6.QtCore import Qt, QTimer, QDateTime
+from PySide6.QtCore import Qt, QTimer, QDateTime, QDate
 from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor, QAction
 import serial.tools.list_ports
 
@@ -95,8 +95,9 @@ class RenameDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PortDebug V1.0.6")
+        self.setWindowTitle("PortDebug V1.0.7")
         self.resize(1200, 800)
+        self.Encode = 'utf-8'
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -257,6 +258,11 @@ class MainWindow(QMainWindow):
         toggle_dock_action = QAction("Commands", self)
         toggle_dock_action.triggered.connect(self.toggle_dock_widget)
         self.menuBar().addAction(toggle_dock_action)
+
+        save_log = QAction("SaveLog", self)
+        save_log.triggered.connect(self.save_receive_log)
+        self.menuBar().addAction(save_log)
+
         main_layout.setStretch(1, 1)  
 
         self.scan_ports()
@@ -269,6 +275,13 @@ class MainWindow(QMainWindow):
 
         self.load_from_json()
 
+    def save_receive_log(self):
+        default_filename = f"PortDebug_log_{QDateTime.currentDateTime().toString('yyyyMMdd_HHmm')}.txt"
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Log", default_filename, "Log Files (*.txt);;All Files (*)", options=options)
+        if file_path:
+            with open(file_path, "w") as f:
+                f.write(self.receive_area.toPlainText())
 
     def toggle_dock_widget(self):
         if self.right_panel.isVisible():
@@ -433,7 +446,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Warning", "data is not hex format！ ")
                     return;
             else:
-                input_data = ' '.join(format(ord(char), '02X') for char in data)
+                input_data = ' '.join(format(byte, '02X') for byte in data.encode(self.Encode))
 
             hex_list = self.ctx.call("processData", input_data)
 
@@ -441,8 +454,6 @@ class MainWindow(QMainWindow):
                 result_array = bytes(int(h.zfill(2), 16) for h in hex_list)
             else:
                 result_array = bytes(int(h, 16) for h in hex_list) 
-
-
 
             if is_hex:
                 self.serial_port.write(result_array)
